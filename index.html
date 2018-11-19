@@ -1,175 +1,100 @@
-<html>
-<body>
-<p>
+/*
+1. Implement three nodes point – to – point network with duplex links between them.
+Set the queue size, vary the bandwidth and find the number of packets dropped.
+*/
+
 #include "ns3/core-module.h"
- <br>
-#include "ns3/network-module.h"<br>
-#include "ns3/internet-module.h"<br>
-#include "ns3/point-to-point-module.h"<br>
-#include "ns3/applications-module.h"<br>
-<br>
-// Network topology<br>
-//<br>
-// 10.1.1.0 10.1.2.0<br>
-// n0 -------------- n1..........n2<br>
-// point-to-point<br>
-//<br>
-<br>
-using namespace ns3;<br>
-NS_LOG_COMPONENT_DEFINE("P2P-LAB1");<br>
-<br>
-int main(int argc, char *argv[])<br>
+#include "ns3/network-module.h"
+#include "ns3/internet-module.h"
+#include "ns3/point-to-point-module.h"
+#include "ns3/applications-module.h"
 
-{<br>
-<br>
- std::string socketType = "ns3::TcpSocketFactory";<br>
-<br>
+// Network topology
+//
+//       10.1.1.0       10.1.2.0
+// n0 -------------- n1..........n2
+//    point-to-point
+//
 
+using namespace ns3;
 
- CommandLine cmd;<br>
+NS_LOG_COMPONENT_DEFINE("P2P-LAB1");
 
- cmd.Parse(argc, argv);<br>
+int main(int argc, char *argv[])
+{
+    std::string socketType = "ns3::TcpSocketFactory";
 
+    CommandLine cmd;
+    cmd.Parse(argc, argv);
 
+    NodeContainer nodes;
+    nodes.Create(3);
 
- NodeContainer nodes;<br>
+    InternetStackHelper stack;
+    stack.Install(nodes);
 
- nodes.Create(3);<br>
+    PointToPointHelper p2p1;
+    p2p1.SetDeviceAttribute("DataRate", StringValue("5Mbps"));
+    p2p1.SetChannelAttribute("Delay", StringValue("1ms"));
 
+    Ipv4AddressHelper address;
+    address.SetBase("10.1.1.0", "255.255.255.0");
 
+    NetDeviceContainer devices;
+    devices = p2p1.Install(nodes.Get(0), nodes.Get(1));
+    Ipv4InterfaceContainer interfaces = address.Assign(devices);
 
- InternetStackHelper stack;<br>
+    devices = p2p1.Install(nodes.Get(1), nodes.Get(2));
+    address.SetBase("10.1.2.0", "255.255.255.0");
+    interfaces = address.Assign(devices);
 
- stack.Install(nodes);<br>
+    Ptr<RateErrorModel> em = CreateObject<RateErrorModel>();
 
+    //Introduce error model to drop packets
+    em->SetAttribute("ErrorRate", DoubleValue(0.00002));
+    devices.Get(1)->SetAttribute("ReceiveErrorModel", PointerValue(em));
 
+    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
- PointToPointHelper p2p1;<br>
+    uint32_t payloadSize = 1448;
+    OnOffHelper onoff(socketType, Ipv4Address::GetAny());
 
- p2p1.SetDeviceAttribute("DataRate", StringValue("5Mbps"));<br>
+    //Generate traffic
+    onoff.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));
 
- p2p1.SetChannelAttribute("Delay", StringValue("1ms"));<br>
+    onoff.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));
 
+    onoff.SetAttribute("PacketSize", UintegerValue(payloadSize));
 
+    onoff.SetAttribute("DataRate", StringValue("50Mbps")); //bit/s
 
- Ipv4AddressHelper address;<br>
+    uint16_t port = 7;
 
- address.SetBase("10.1.1.0", "255.255.255.0");<br>
+    //1. Install receiver (for packetsink) on node 2
+    Address localAddress1(InetSocketAddress(Ipv4Address::GetAny(), port));
+    PacketSinkHelper packetSinkHelper1(socketType, localAddress1);
+    ApplicationContainer sinkApp1 = packetSinkHelper1.Install(nodes.Get(2));
+    sinkApp1.Start(Seconds(0.0));
+    sinkApp1.Stop(Seconds(10));
 
+    //2. Install sender app on node 0
+    ApplicationContainer apps;
+    AddressValue remoteAddress(InetSocketAddress(interfaces.GetAddress(1), port));
+    onoff.SetAttribute("Remote", remoteAddress);
+    apps.Add(onoff.Install(nodes.Get(0)));
+    apps.Start(Seconds(1.0));
+    apps.Stop(Seconds(10));
 
+    Simulator::Stop(Seconds(10));
 
- NetDeviceContainer devices;<br>
+    //Generate trace file
+    AsciiTraceHelper ascii;
+    p2p1.EnableAsciiAll(ascii.CreateFileStream("P2ptracefile.tr"));
 
- devices = p2p1.Install(nodes.Get(0), nodes.Get(1));<br>
+    //Run the simulator
+    Simulator::Run();
 
- Ipv4InterfaceContainer interfaces = address.Assign(devices);<br>
+    Simulator::Destroy();
 
-
-
- devices = p2p1.Install(nodes.Get(1), nodes.Get(2));<br>
-
- address.SetBase("10.1.2.0", "255.255.255.0");<br>
-
- interfaces = address.Assign(devices);<br>
-
-
-
- Ptr<RateErrorModel> em = CreateObject<RateErrorModel>();<br>
-
-
-
- //Introduce error model to drop packets<br>
-
- em->SetAttribute("ErrorRate", DoubleValue(0.00002));<br>
-
- devices.Get(1)->SetAttribute("ReceiveErrorModel", PointerValue(em));<br>
-
-
-
- Ipv4GlobalRoutingHelper::PopulateRoutingTables();<br>
-
-
-
- uint32_t payloadSize = 1448;<br>
-
- OnOffHelper onoff(socketType, Ipv4Address::GetAny());<br>
-
-
-
- //Generate traffic<br>
-
- onoff.SetAttribute("OnTime", StringValue("ns3::ConstantRandomVariable[Constant=1]"));<br>
-
-
-
- onoff.SetAttribute("OffTime", StringValue("ns3::ConstantRandomVariable[Constant=0]"));<br>
-
-<br>
-
- onoff.SetAttribute("PacketSize", UintegerValue(payloadSize));<br>
-
-
-
- onoff.SetAttribute("DataRate", StringValue("50Mbps")); //bit/s<br>
-
-
-
- uint16_t port = 7;<br>
-
-<br>
-
- //1. Install receiver (for packetsink) on node 2<br>
-
- Address localAddress1(InetSocketAddress(Ipv4Address::GetAny(), port));<br>
-
- PacketSinkHelper packetSinkHelper1(socketType, localAddress1);<br>
-
- ApplicationContainer sinkApp1 = packetSinkHelper1.Install(nodes.Get(2));<br>
-
- sinkApp1.Start(Seconds(0.0));<br>
-
- sinkApp1.Stop(Seconds(10));<br>
-
-
-
- //2. Install sender app on node 0<br>
-
- ApplicationContainer apps;<br>
-
- AddressValue remoteAddress(InetSocketAddress(interfaces.GetAddress(1), port));<br>
-
- onoff.SetAttribute("Remote", remoteAddress);<br>
-
- apps.Add(onoff.Install(nodes.Get(0)));<br>
-<br>
- apps.Start(Seconds(1.0));<br>
-
- apps.Stop(Seconds(10));<br>
-
-
-
- Simulator::Stop(Seconds(10));<br>
-
-
-
- //Generate trace file<br>
-
- AsciiTraceHelper ascii;<br>
-
- p2p1.EnableAsciiAll(ascii.CreateFileStream("P2ptracefile.tr"));<br>
-
-
-<br>
- //Run the simulator<br>
-<br>
- Simulator::Run();<br>
-<br>
- Simulator::Destroy();<br>
-
- return 0;<br>
-<br>
-}<br>
- </p>
- </body> 
-</html>
-
+    return 0;
+}
